@@ -63,7 +63,7 @@ def wait_for(port, timeout=600, proc=None, comfy_dir="ComfyUI"):
 def colab_proxy_url(port):
     try:
         from google.colab.output import eval_js  # noqa
-        return eval_js(f"google.colab.kernel.proxyPort({port})")
+        return eval_js(f"google.colab.kernel.proxyPort({port})", timeout_sec=2)
     except Exception:
         return None
 
