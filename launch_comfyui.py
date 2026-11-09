@@ -135,7 +135,7 @@ def launch(comfy_dir="ComfyUI", lowvram=False, tunnel=False, extra=(), restart=F
         print(f"\n>> ComfyUI (Colab proxy): {url}\n")
     else:
         print(f"\n>> ComfyUI: http://127.0.0.1:{PORT}\n")
-    if tunnel or not url:
+    if tunnel:
         t = URLS["tunnel"] = cloudflared(PORT)
         print(f">> ComfyUI (cloudflare):   {t}\n" if t else f">> cloudflared gave no URL — see {TUNNEL_LOG}")
     return url
