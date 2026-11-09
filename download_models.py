@@ -326,3 +326,8 @@ def main():
                 if f.endswith((".gguf", ".safetensors")):
                     print(f"  models/{sub}/{f}")
     print(f"\n>> Model `{diffusion_file(args.model)}` is ready for generation.")
+
+
+if __name__ == "__main__":
+    main()
+
