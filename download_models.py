@@ -36,7 +36,7 @@ if importlib.util.find_spec("hf_transfer") and importlib.metadata.version("huggi
 import requests  # noqa: E402
 from huggingface_hub import hf_hub_download  # noqa: E402
 
-REPO = "abenzerps/Qwen-Image-2.1-Uncensored-GGUF"
+REPO = "KasugaiSakura/Qwen-Image-2.1-Uncensored-Abenzerps-GGUF"
 COMFY_ORG_REPO = "Comfy-Org/Qwen-Image-2.1"  # unquantized base + the optional w4a8 encoder
 
 MODELS = {
