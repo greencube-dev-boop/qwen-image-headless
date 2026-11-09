@@ -319,6 +319,36 @@ def edit(prompt, images, negative="", resolution=0, width=None, height=None, ste
     return _submit(wf, seed, count, host, out, timeout, progress), seed
 
 
+# ---- VRAM preloader -----------------------------------------------------------------
+
+def load_models_to_vram(model=None, clip=None, lowvram=False, host=DEFAULT_HOST, comfy_dir="ComfyUI"):
+    """Launch ComfyUI headless if not running and preload / warm up model weights into GPU VRAM."""
+    from launch_comfyui import launch, port_open, PORT
+    if not port_open(PORT):
+        print(">> Launching ComfyUI headless server...")
+        launch(comfy_dir=comfy_dir, lowvram=lowvram, restart=False)
+    else:
+        print(f">> ComfyUI already active on :{PORT}")
+
+    print(">> Warming up / loading model into GPU VRAM...")
+    warmup_out = "/tmp/qwen_warmup"
+    try:
+        run("warmup", width=256, height=256, steps=1, cfg=1.0, seed=1,
+            model=model, clip=clip, host=host, out=warmup_out)
+        print(">> Model weights successfully cached in GPU VRAM.")
+    except Exception as e:
+        print(f">> Model load triggered: {e}")
+
+    try:
+        import torch
+        if torch.cuda.is_available():
+            vram_gb = torch.cuda.memory_allocated() / (1024**3)
+            total_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+            print(f">> VRAM Status: {vram_gb:.2f} GB allocated / {total_gb:.2f} GB total")
+    except Exception:
+        pass
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("prompt")

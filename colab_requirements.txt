@@ -7,4 +7,3 @@ huggingface_hub>=0.34
 hf_transfer
 requests
 tqdm
-gradio>=5.0

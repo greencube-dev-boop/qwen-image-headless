@@ -23,6 +23,7 @@ import importlib.metadata
 import importlib.util
 import os
 import re
+import shutil
 import struct
 import sys
 import urllib.parse
@@ -148,9 +149,130 @@ def fetch(repo, filename, local_dir, revision="main"):
     return path
 
 
+def sync_file_with_drive(filename, repo, repo_subpath, local_target_dir, drive_target_dir=None, revision="main"):
+    """Check Google Drive first:
+      - If found in Drive: copy/link to local_target_dir
+      - If not found in Drive: check local_target_dir; if missing locally, download from Hugging Face.
+        Then save a copy into drive_target_dir for future sessions.
+    """
+    os.makedirs(local_target_dir, exist_ok=True)
+    local_path = os.path.join(local_target_dir, filename)
+    drive_path = os.path.join(drive_target_dir, filename) if drive_target_dir else None
+
+    # 1. Check Google Drive first
+    if drive_path and os.path.isfile(drive_path) and os.path.getsize(drive_path) > 1024:
+        size_gb = os.path.getsize(drive_path) / 1e9
+        print(f">> [Drive Cache Hit] Found {filename} ({size_gb:.2f} GB) in Drive: {drive_target_dir}")
+        if not os.path.isfile(local_path) or os.path.getsize(local_path) != os.path.getsize(drive_path):
+            print(f">> Copying from Drive to local fast storage: {local_path} ...")
+            shutil.copy2(drive_path, local_path)
+            print(f">> Copied to local storage.")
+        else:
+            print(f">> Local copy already up to date: {local_path}")
+        return local_path
+
+    # 2. Check local directory
+    if os.path.isfile(local_path) and os.path.getsize(local_path) > 1024:
+        print(f">> Local file ready: {local_path}")
+        if drive_path and drive_target_dir and not os.path.isfile(drive_path):
+            try:
+                print(f">> Backing up local file to Drive ({drive_target_dir})...")
+                os.makedirs(drive_target_dir, exist_ok=True)
+                shutil.copy2(local_path, drive_path)
+                print(f">> Backup copy saved to Drive.")
+            except OSError as e:
+                print(f"   (Warning: could not backup to Drive: {e})")
+        return local_path
+
+    # 3. Not in Drive, not local -> Download from Hugging Face
+    print(f">> [Hugging Face] {filename} not found in Drive or local storage. Downloading from {repo}@{revision}...")
+    fetched = fetch(repo, repo_subpath, local_target_dir, revision=revision)
+    if os.path.abspath(fetched) != os.path.abspath(local_path):
+        if os.path.isfile(fetched) and not os.path.isfile(local_path):
+            shutil.move(fetched, local_path)
+
+    # 4. Save a copy to Google Drive for next time
+    if drive_path and drive_target_dir:
+        try:
+            print(f">> Saving copy to Google Drive ({drive_target_dir})...")
+            os.makedirs(drive_target_dir, exist_ok=True)
+            shutil.copy2(local_path, drive_path)
+            print(f">> Saved copy to Drive successfully.")
+        except OSError as e:
+            print(f"   (Warning: could not save copy to Drive: {e})")
+
+    return local_path
+
+
+def sync_models(model="Q4_K_M", text_encoder="int8", skip_vae=False,
+                drive_root="/content/drive/MyDrive/Qwen-Image", comfy_dir="ComfyUI"):
+    """Check Drive models folder first (Diffusion Models, Text Encoders, VAE),
+    otherwise download from Hugging Face and save a copy into Drive."""
+    models_dir = os.path.join(comfy_dir, "models")
+    os.makedirs(models_dir, exist_ok=True)
+
+    drive_diffusion_dir = os.path.join(drive_root, "models", "Diffusion Models") if drive_root else None
+    drive_text_encoder_dir = os.path.join(drive_root, "models", "Text Encoders") if drive_root else None
+    drive_vae_dir = os.path.join(drive_root, "models", "VAE") if drive_root else None
+
+    # 1. Diffusion Model
+    m_key = model_key(model)
+    fname, repo, revision, size = MODELS[m_key]
+    diff_filename = os.path.basename(fname)
+    local_diff_dir = os.path.join(models_dir, "diffusion_models")
+    print(f">> [1/3] Diffusion Model: {diff_filename} (~{size} GB)")
+    sync_file_with_drive(
+        filename=diff_filename,
+        repo=repo,
+        repo_subpath=fname,
+        local_target_dir=local_diff_dir,
+        drive_target_dir=drive_diffusion_dir,
+        revision=revision
+    )
+
+    # 2. Text Encoder
+    if text_encoder:
+        fname, repo, size = TEXT_ENCODERS[text_encoder]
+        enc_filename = os.path.basename(fname)
+        local_enc_dir = os.path.join(models_dir, "text_encoders")
+        print(f"\n>> [2/3] Text Encoder: {enc_filename} (~{size} GB)")
+        sync_file_with_drive(
+            filename=enc_filename,
+            repo=repo,
+            repo_subpath=fname,
+            local_target_dir=local_enc_dir,
+            drive_target_dir=drive_text_encoder_dir,
+            revision="main"
+        )
+
+    # 3. VAE
+    if not skip_vae:
+        vae_filename = os.path.basename(VAE)
+        local_vae_dir = os.path.join(models_dir, "vae")
+        print(f"\n>> [3/3] VAE: {vae_filename} (~0.68 GB)")
+        sync_file_with_drive(
+            filename=vae_filename,
+            repo=REPO,
+            repo_subpath=VAE,
+            local_target_dir=local_vae_dir,
+            drive_target_dir=drive_vae_dir,
+            revision="main"
+        )
+
+    print("\nLocal ComfyUI Models status:")
+    for sub in ("diffusion_models", "text_encoders", "vae"):
+        d = os.path.join(models_dir, sub)
+        if os.path.isdir(d):
+            for f in sorted(os.listdir(d)):
+                if f.endswith((".gguf", ".safetensors")):
+                    sz = os.path.getsize(os.path.join(d, f)) / 1e9
+                    print(f"  models/{sub}/{f} ({sz:.2f} GB)")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--comfy-dir", default="ComfyUI", help="path to the ComfyUI checkout")
+    ap.add_argument("--drive-root", default=None, help="Google Drive root folder (e.g. /content/drive/MyDrive/Qwen-Image)")
     ap.add_argument("--model", "--quant", dest="model", default="Q4_K_M", type=model_key, metavar="MODEL",
                     help=f"diffusion model, one of: {', '.join(MODELS)}")
     ap.add_argument("--text-encoder", default="int8", choices=sorted(TEXT_ENCODERS))
@@ -174,29 +296,33 @@ def main():
     if args.lora_only:
         return
 
-    fname, repo, revision, size = MODELS[args.model]
-    print(f">> diffusion model {os.path.basename(fname)} (~{size} GB, {repo}@{revision})")
-    # abenzerps files sit at the repo root; the Comfy-Org ones already carry the diffusion_models/ prefix
-    fetch(repo, fname, models if fname.startswith("diffusion_models/") else os.path.join(models, "diffusion_models"),
-          revision)
+    if args.drive_root:
+        sync_models(
+            model=args.model,
+            text_encoder=None if args.skip_text_encoder else args.text_encoder,
+            skip_vae=args.skip_vae,
+            drive_root=args.drive_root,
+            comfy_dir=args.comfy_dir
+        )
+    else:
+        fname, repo, revision, size = MODELS[args.model]
+        print(f">> diffusion model {os.path.basename(fname)} (~{size} GB, {repo}@{revision})")
+        fetch(repo, fname, models if fname.startswith("diffusion_models/") else os.path.join(models, "diffusion_models"),
+              revision)
 
-    if not args.skip_text_encoder:
-        fname, repo, size = TEXT_ENCODERS[args.text_encoder]
-        print(f">> text encoder {os.path.basename(fname)} (~{size} GB)")
-        fetch(repo, fname, models)  # repo path already starts with text_encoders/
+        if not args.skip_text_encoder:
+            fname, repo, size = TEXT_ENCODERS[args.text_encoder]
+            print(f">> text encoder {os.path.basename(fname)} (~{size} GB)")
+            fetch(repo, fname, models)
 
-    if not args.skip_vae:
-        print(f">> VAE {os.path.basename(VAE)} (~0.68 GB)")
-        fetch(REPO, VAE, models)
+        if not args.skip_vae:
+            print(f">> VAE {os.path.basename(VAE)} (~0.68 GB)")
+            fetch(REPO, VAE, models)
 
-    print("\nLayout:")
-    for sub in ("diffusion_models", "text_encoders", "vae"):
-        d = os.path.join(models, sub)
-        for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
-            if f.endswith((".gguf", ".safetensors")):
-                print(f"  models/{sub}/{f}")
-    print(f"\n>> pick `{diffusion_file(args.model)}` in the Gradio / ComfyUI model dropdown")
-
-
-if __name__ == "__main__":
-    main()
+        print("\nLayout:")
+        for sub in ("diffusion_models", "text_encoders", "vae"):
+            d = os.path.join(models, sub)
+            for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+                if f.endswith((".gguf", ".safetensors")):
+                    print(f"  models/{sub}/{f}")
+    print(f"\n>> Model `{diffusion_file(args.model)}` is ready for generation.")
