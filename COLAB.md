@@ -38,23 +38,32 @@ together — re-running the cell resets both to those commits. Installs both
 `requirements.txt` files plus `colab_requirements.txt`, and copies the workflows into
 `ComfyUI/user/default/workflows/` so they show up in the UI's workflow browser.
 
-## Cell 3 – models (~14 GB for the default combo)
+## Cell 2 / 3 – Multi-Developer Model Discovery & Sync (~14 GB for default combo)
 
-```python
-!python download_models.py --model Q4_K_M --text-encoder int8
-!python download_models.py --model BF16          # uncensored, unquantized (14.2 GB)
-!python download_models.py --model base-Q4_K_M   # plain upstream base model instead
+The download tool scans your **Google Drive models folder first**, then discovers all compatible models across community developers (**KasugaiSakura/abenzerps**, **Unsloth**, **AtomicChat Turbo**, **Comfy-Org Upstream**), and lets you choose which one to load:
+
+```bash
+# List all discovered compatible models from all developers
+python download_models.py --list-models
+
+# Ask interactively which model to load by number [1..N]
+python download_models.py --interactive
+
+# Select directly by catalog ID, filename, or quant tag
+python download_models.py --select 1
+python download_models.py --select "unsloth/Qwen-Image-2.1-GGUF:qwen-image-2.1-Q4_K_M.gguf"
+python download_models.py --model Q4_K_M --text-encoder int8
 ```
 
-No HF token needed. Uncensored (`UC`) files come from the main branch of
-`abenzerps/Qwen-Image-2.1-Uncensored-GGUF`, base quants from its `base` branch, the
-unquantized base from `Comfy-Org/Qwen-Image-2.1`; the text encoder and VAE are shared.
-Only the selected model is downloaded. Options (case-insensitive):
+No HF token needed. When a model is downloaded from Hugging Face, it is **automatically backed up into Google Drive** (`Drive/Qwen-Image/models/Diffusion Models`) so future sessions get instant cache hits without re-downloading!
 
-| flag | choices | |
+| Developer / Provider | Available Quantizations / Formats | Notes |
 |---|---|---|
-| `--model` | uncensored: `Q4_0` 4.15 GB · **`Q4_K_M` 4.60 GB** · `Q8_0` 7.59 GB · `BF16` 14.2 GB (GGUF) · `fp8` 7.12 GB · `int8` 7.26 GB (safetensors) — base: `base-Q4_0` · `base-Q4_K_M` · `base-Q8_0` (GGUF) · `base-int8` · `base-bf16` (safetensors). `--quant` still works as an alias. | diffusion model |
-| `--text-encoder` | **`int8`** 9.35 GB · `bf16` 17.5 GB · `w4a8` 6.3 GB (from Comfy-Org, experimental) | Qwen3-VL 8B |
+| **KasugaiSakura (abenzerps)** | `Q4_0` (4.15 GB), **`Q4_K_M` (4.60 GB)**, `Q5_K_M` (5.35 GB), `Q6_K` (6.17 GB), `Q8_0` (7.59 GB), `BF16` (14.23 GB GGUF), `fp8` / `int8` (safetensors) | De-censored community fine-tune; removed safety suppression vectors |
+| **Unsloth** | `Q4_K_M` (4.60 GB), `Q5_K_M` (5.35 GB), `Q6_K` (6.17 GB), `Q8_0` (7.59 GB), `F16` (14.23 GB GGUF) | Official base weights quantized by Unsloth |
+| **AtomicChat** | `Turbo-AD-Q4_K` (4.60 GB), `Turbo-Q8_0` (7.59 GB), `Turbo-BF16` (14.23 GB) | Turbo step-distilled uncensored variant |
+| **Comfy-Org (Official)** | `base-int8` (7.26 GB), `base-bf16` (14.23 GB), `turbo-int8` (7.26 GB) | Upstream official ComfyUI safetensors |
+| **Custom User Model** | Any custom Hugging Face repo via `repo_id:filename` | Dynamic resolution & download |
 
 Files land in:
 
